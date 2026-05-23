@@ -19,6 +19,7 @@ import openpi.models.pi0_fast as pi0_fast
 import openpi.models.tokenizer as _tokenizer
 import openpi.policies.aloha_policy as aloha_policy
 import openpi.policies.droid_policy as droid_policy
+import openpi.policies.ffw_bg2_policy as ffw_bg2_policy
 import openpi.policies.libero_policy as libero_policy
 import openpi.shared.download as _download
 import openpi.shared.normalize as _normalize
@@ -89,6 +90,8 @@ class DataConfig:
 
     # If true, will use the LeRobot dataset task to define the prompt.
     prompt_from_task: bool = False
+    # Optional LeRobot video decoder backend. Useful when torchcodec is unavailable or broken.
+    video_backend: str | None = None
 
     # Only used for RLDS data loader (ie currently only used for DROID).
     rlds_data_dir: str | None = None
@@ -760,6 +763,49 @@ _CONFIGS = [
         weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
         pytorch_weight_path="/path/to/your/pytorch_weight_path",
         num_train_steps=30_000,
+    ),
+    TrainConfig(
+        name="pi05_ffw_bg2",
+        model=pi0_config.Pi0Config(pi05=True, action_dim=32, action_horizon=10, discrete_state_input=False),
+        data=SimpleDataConfig(
+            repo_id=str(pathlib.Path.home() / "Development/quest3_streamer/datasets/local/ffw_bg2_v3"),
+            assets=AssetsConfig(asset_id="ffw_bg2"),
+            data_transforms=lambda model: _transforms.Group(
+                inputs=[ffw_bg2_policy.FFWBG2Inputs()],
+                outputs=[ffw_bg2_policy.FFWBG2Outputs()],
+            ),
+            base_config=DataConfig(
+                prompt_from_task=True,
+                action_sequence_keys=("action",),
+                video_backend="pyav",
+                repack_transforms=_transforms.Group(
+                    inputs=[
+                        _transforms.RepackTransform(
+                            {
+                                "head_camera": "observation.images.head_camera",
+                                "left_wrist_camera": "observation.images.left_wrist_camera",
+                                "right_wrist_camera": "observation.images.right_wrist_camera",
+                                "state": "observation.state",
+                                "actions": "action",
+                                "prompt": "prompt",
+                            }
+                        )
+                    ]
+                ),
+            ),
+        ),
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=1_000,
+            peak_lr=5e-5,
+            decay_steps=30_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(clip_gradient_norm=1.0),
+        weight_loader=weight_loaders.CheckpointWeightLoader("gs://openpi-assets/checkpoints/pi05_base/params"),
+        pytorch_weight_path="checkpoints/pytorch/pi05_base",
+        num_train_steps=20_000,
+        batch_size=32,
+        num_workers=0,
     ),
     #
     # Fine-tuning Aloha configs.

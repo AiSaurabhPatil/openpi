@@ -136,13 +136,13 @@ class Normalize(DataTransformFn):
 
     def _normalize(self, x, stats: NormStats):
         mean, std = stats.mean[..., : x.shape[-1]], stats.std[..., : x.shape[-1]]
-        return (x - mean) / (std + 1e-6)
+        return _cast_to_dtype((x - mean) / (std + 1e-6), x.dtype)
 
     def _normalize_quantile(self, x, stats: NormStats):
         assert stats.q01 is not None
         assert stats.q99 is not None
         q01, q99 = stats.q01[..., : x.shape[-1]], stats.q99[..., : x.shape[-1]]
-        return (x - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0
+        return _cast_to_dtype((x - q01) / (q99 - q01 + 1e-6) * 2.0 - 1.0, x.dtype)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -427,6 +427,14 @@ def pad_to_dim(x: np.ndarray, target_dim: int, axis: int = -1, value: float = 0.
         pad_width = [(0, 0)] * len(x.shape)
         pad_width[axis] = (0, target_dim - current_dim)
         return np.pad(x, pad_width, constant_values=value)
+    return x
+
+
+def _cast_to_dtype(x, dtype):
+    if hasattr(x, "astype"):
+        return x.astype(dtype)
+    if hasattr(x, "to"):
+        return x.to(dtype=dtype)
     return x
 
 
